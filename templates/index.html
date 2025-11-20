@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Scanner Pro</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Lucide Icons (아이콘용) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        @import url('https://rsms.me/inter/inter.css');
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #fafafa;
+            color: #171717;
+        }
+
+        /* 탭 버튼 스타일 */
+        .tab-btn {
+            position: relative;
+            padding: 0.75rem 1.5rem;
+            font-weight: 500;
+            color: #737373;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .tab-btn:hover:not(:disabled) { color: #171717; }
+        .tab-btn.active { color: #171717; }
+        .tab-btn.active::after {
+            content: ''; position: absolute; bottom: -1px; left: 0; width: 100%; height: 2px; background-color: #171717;
+        }
+        .tab-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* 스위치 스타일 */
+        .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #e5e5e5; transition: .4s; border-radius: 24px;
+        }
+        .slider:before {
+            position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px;
+            background-color: white; transition: .4s; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+        }
+        input:checked + .slider { background-color: #171717; }
+        input:checked + .slider:before { transform: translateX(20px); }
+
+        /* 드래그 앤 드롭 활성화 */
+        .drag-active {
+            border-color: #171717 !important;
+            background-color: #f5f5f5 !important;
+        }
+    </style>
+</head>
+<body>
+
+<div class="min-h-screen max-w-6xl mx-auto p-6">
+    <!-- 헤더 -->
+    <header class="flex items-center justify-between mb-8 pt-4">
+        <div class="flex items-center gap-3">
+            <div class="bg-neutral-900 text-white p-2 rounded-lg">
+                <i data-lucide="scan-text" class="w-6 h-6"></i>
+            </div>
+            <h1 class="text-2xl font-bold tracking-tight text-gray-900">DocuScan Pro</h1>
+        </div>
+    </header>
+
+    <!-- 탭 네비게이션 -->
+    <nav class="flex border-b border-gray-200 mb-8">
+        <button class="tab-btn active" id="tab-upload" onclick="switchTab('upload')">
+            <i data-lucide="upload" class="w-4 h-4"></i> 파일 업로드
+        </button>
+        <button class="tab-btn" id="tab-edit" onclick="switchTab('edit')" disabled>
+            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i> 편집 및 설정
+        </button>
+        <button class="tab-btn" id="tab-result" onclick="switchTab('result')" disabled>
+            <i data-lucide="file-text" class="w-4 h-4"></i> OCR 결과
+        </button>
+        <button class="tab-btn" id="tab-saved" onclick="switchTab('saved')">
+            <i data-lucide="archive" class="w-4 h-4"></i> 보관함 <span id="saved-count" class="bg-gray-200 text-xs px-2 py-0.5 rounded-full ml-1">0</span>
+        </button>
+    </nav>
+
+    <!-- [1] 파일 업로더 화면 -->
+    <main id="panel-upload" class="animate-fade-in">
+        <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-12">
+            <div id="dropzone"
+                 class="group border-2 border-dashed border-gray-200 rounded-xl p-12 text-center cursor-pointer hover:border-neutral-400 hover:bg-gray-50 transition-all">
+                <div class="flex flex-col items-center gap-4 pointer-events-none">
+                    <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center group-hover:bg-white shadow-sm">
+                        <i data-lucide="upload-cloud" class="w-8 h-8 text-gray-500 group-hover:text-black"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900 mb-1">파일을 드래그하거나 클릭하세요</h3>
+                        <p class="text-sm text-gray-500">JPG, PNG 이미지 또는 PDF 문서</p>
+                    </div>
+                </div>
+                <input type="file" id="file-input" class="hidden" accept="image/*,.pdf">
+            </div>
+        </div>
+    </main>
+
+    <!-- [2] 편집기 화면 -->
+    <main id="panel-edit" class="hidden animate-fade-in">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- 왼쪽: 캔버스/미리보기 -->
+            <div class="lg:col-span-2">
+                <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-6 h-full flex flex-col bg-gray-50">
+                    <div class="flex justify-between items-center mb-4">
+                        <div class="flex items-center gap-2 text-sm font-medium">
+                                <span id="auto-detect-msg" class="text-green-600 flex items-center hidden">
+                                    <i data-lucide="check-circle-2" class="w-4 h-4 mr-1"></i> 자동으로 모서리가 감지되었습니다
+                                </span>
+                            <span id="manual-msg" class="text-blue-600">모서리를 드래그하여 조정하세요</span>
+                        </div>
+                        <button id="btn-reset-corners" class="text-sm bg-white border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50 flex items-center hidden">
+                            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5 mr-1"></i> 자동 영역 재설정
+                        </button>
+                    </div>
+
+                    <div id="canvas-container" class="flex-1 flex items-center justify-center overflow-hidden bg-gray-200 rounded-lg border border-gray-300 relative touch-none">
+                        <!-- PDF용 아이콘 (이미지일 땐 숨김) -->
+                        <div id="pdf-preview" class="text-center p-8 hidden">
+                            <i data-lucide="file-type-2" class="w-16 h-16 text-gray-400 mx-auto mb-4"></i>
+                            <p id="pdf-name" class="text-gray-600 font-medium"></p>
+                            <p class="text-gray-400 text-sm mt-2">PDF는 전체 텍스트 추출만 지원합니다.</p>
+                        </div>
+                        <!-- 이미지용 캔버스 -->
+                        <canvas id="editor-canvas" class="cursor-crosshair"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 오른쪽: 옵션 및 실행 -->
+            <div class="space-y-6">
+                <!-- 보정 옵션 (이미지 전용) -->
+                <div id="image-options" class="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+                    <h3 class="text-sm font-bold text-gray-900 uppercase mb-4">보정 옵션</h3>
+                    <div class="space-y-4">
+                        <div class="flex justify-between">
+                            <span class="text-sm font-medium text-gray-700">흑백 변환</span>
+                            <label class="switch">
+                                <input type="checkbox" id="opt-grayscale">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-sm font-medium text-gray-700">그림자 제거</span>
+                            <label class="switch">
+                                <input type="checkbox" id="opt-shadow">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 작업 실행 -->
+                <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+                    <h3 class="text-sm font-bold text-gray-900 uppercase mb-4">작업 실행</h3>
+                    <div class="space-y-3">
+                        <button onclick="processFile('ocr')" class="w-full flex justify-between items-center bg-neutral-900 text-white px-5 py-2.5 rounded-lg hover:bg-neutral-800 transition-colors group">
+                            <span>OCR 텍스트 추출</span>
+                            <i data-lucide="text-cursor" class="w-4 h-4 opacity-50 group-hover:opacity-100"></i>
+                        </button>
+                        <button id="btn-save-image" onclick="processFile('save')" class="w-full flex justify-between items-center border border-gray-300 bg-white text-gray-700 px-5 py-2.5 rounded-lg hover:bg-gray-50 transition-colors group">
+                            <span>이미지 저장 (보관함)</span>
+                            <i data-lucide="archive" class="w-4 h-4 opacity-50 group-hover:opacity-100"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- [3] 결과 화면 -->
+    <main id="panel-result" class="hidden animate-fade-in">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- 미리보기 -->
+            <div class="bg-white border border-gray-200 rounded-xl shadow-sm p-6 bg-gray-50 flex items-center justify-center min-h-[400px]">
+                <img id="result-image" class="hidden max-w-full max-h-[500px] shadow-lg rounded border border-gray-200">
+                <div id="result-pdf-icon" class="hidden text-center">
+                    <i data-lucide="file-text" class="w-16 h-16 text-gray-300 mx-auto mb-2"></i>
+                    <p class="text-gray-500">PDF 문서</p>
+                </div>
+            </div>
+            <!-- 텍스트 결과 -->
+            <div class="bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col h-[500px]">
+                <div class="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50 rounded-t-xl">
+                    <span class="font-semibold text-sm text-gray-700">텍스트 추출 결과</span>
+                    <div class="flex gap-2">
+                        <button onclick="copyResultText()" class="text-sm border border-gray-300 bg-white px-3 py-1.5 rounded hover:bg-gray-50 flex items-center">
+                            <i data-lucide="copy" class="w-3.5 h-3.5 mr-1"></i> 복사
+                        </button>
+                        <button onclick="downloadResultText()" class="text-sm border border-gray-300 bg-white px-3 py-1.5 rounded hover:bg-gray-50 flex items-center">
+                            <i data-lucide="download" class="w-3.5 h-3.5 mr-1"></i> 저장
+                        </button>
+                    </div>
+                </div>
+                <div class="flex-1 p-6 overflow-auto">
+                    <pre id="result-text" class="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap font-mono"></pre>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- [4] 보관함 화면 -->
+    <main id="panel-saved" class="hidden animate-fade-in">
+        <div class="space-y-6">
+            <div class="flex items-center justify-between bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="archive" class="w-5 h-5 text-gray-500"></i>
+                    <span class="font-bold text-gray-800">보관함</span>
+                </div>
+                <button id="btn-merge-pdf" onclick="mergePDF()" class="text-sm bg-neutral-900 text-white px-3 py-1.5 rounded hover:bg-neutral-800 flex items-center" disabled>
+                    <i data-lucide="file-stack" class="w-4 h-4 mr-2"></i> PDF로 병합 저장
+                </button>
+            </div>
+
+            <div id="saved-empty" class="bg-white border border-gray-200 rounded-xl shadow-sm p-16 text-center">
+                <i data-lucide="ghost" class="w-12 h-12 text-gray-300 mx-auto mb-3"></i>
+                <p class="text-gray-500">저장된 이미지가 없습니다.</p>
+            </div>
+
+            <div id="saved-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 hidden">
+                <!-- 저장된 아이템들이 여기에 추가됨 -->
+            </div>
+        </div>
+    </main>
+
+</div>
+
+<script>
+    // --- 전역 변수 ---
+    let currentFile = null;
+    let corners = [];
+    let savedItems = [];
+    let canvasScale = 1;
+    let selectedCorner = null;
+    let isAutoDetected = false;
+
+    const canvas = document.getElementById('editor-canvas');
+    const ctx = canvas.getContext('2d');
+    let imageObj = new Image();
+
+    // --- 초기화 ---
+    lucide.createIcons();
+
+    // --- 탭 전환 로직 ---
+    function switchTab(tabId) {
+        // 모든 패널 숨기기 & 버튼 비활성화
+        ['upload', 'edit', 'result', 'saved'].forEach(id => {
+            document.getElementById(`panel-${id}`).classList.add('hidden');
+            document.getElementById(`tab-${id}`).classList.remove('active');
+        });
+
+        // 선택된 탭 활성화
+        document.getElementById(`panel-${tabId}`).classList.remove('hidden');
+        document.getElementById(`tab-${tabId}`).classList.add('active');
+
+        lucide.createIcons(); // 아이콘 리로드
+    }
+
+    // --- 파일 업로드 ---
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('file-input');
+
+    dropzone.addEventListener('click', () => fileInput.click());
+
+    dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault(); dropzone.classList.add('drag-active');
+    });
+    dropzone.addEventListener('dragleave', () => {
+        dropzone.classList.remove('drag-active');
+    });
+    dropzone.addEventListener('drop', (e) => {
+        e.preventDefault(); dropzone.classList.remove('drag-active');
+        handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+
+    function handleFile(file) {
+        if (!file) return;
+
+        if (file.type === 'application/pdf') {
+            currentFile = { type: 'pdf', file, name: file.name };
+            setupEditor('pdf');
+        } else if (file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                currentFile = { type: 'image', file, name: file.name, preview: e.target.result };
+                imageObj.onload = () => {
+                    autoDetectCorners(); // 이미지 로드 후 자동 감지
+                    setupEditor('image');
+                };
+                imageObj.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        } else {
+            alert('이미지 또는 PDF 파일만 가능합니다.');
+        }
+    }
+
+    function setupEditor(type) {
+        document.getElementById('tab-edit').disabled = false;
+        switchTab('edit');
+
+        if (type === 'pdf') {
+            document.getElementById('canvas-container').classList.add('hidden'); // 캔버스 컨테이너 숨김 (오류 수정)
+            // 대신 PDF 프리뷰 영역을 따로 만들거나 교체
+            document.getElementById('pdf-preview').classList.remove('hidden');
+            document.getElementById('pdf-name').textContent = currentFile.name;
+            document.getElementById('editor-canvas').classList.add('hidden'); // 캔버스 숨김
+
+            document.getElementById('image-options').classList.add('hidden'); // 이미지 옵션 숨김
+            document.getElementById('btn-save-image').disabled = true; // 저장 불가
+
+            document.getElementById('btn-reset-corners').classList.add('hidden');
+            document.getElementById('auto-detect-msg').classList.add('hidden');
+            document.getElementById('manual-msg').textContent = "PDF 문서";
+
+        } else {
+            document.getElementById('canvas-container').classList.remove('hidden');
+            document.getElementById('pdf-preview').classList.add('hidden');
+            document.getElementById('editor-canvas').classList.remove('hidden');
+
+            document.getElementById('image-options').classList.remove('hidden');
+            document.getElementById('btn-save-image').disabled = false;
+
+            document.getElementById('btn-reset-corners').classList.remove('hidden');
+            // 버튼 이벤트 연결 (초기화)
+            document.getElementById('btn-reset-corners').onclick = autoDetectCorners;
+
+            drawCanvas(); // 최초 그리기
+        }
+    }
+
+    // --- 캔버스 & 모서리 조작 (순수 JS) ---
+    function autoDetectCorners() {
+        const w = imageObj.width;
+        const h = imageObj.height;
+        const p = 40; // 패딩
+
+        // 4개 모서리 자동 설정 (시뮬레이션)
+        corners = [
+            {x: p, y: p}, {x: w-p, y: p},
+            {x: w-p, y: h-p}, {x: p, y: h-p}
+        ];
+        isAutoDetected = true;
+        updateStatusMsg();
+        drawCanvas();
+    }
+
+    function updateStatusMsg() {
+        if (isAutoDetected) {
+            document.getElementById('auto-detect-msg').classList.remove('hidden');
+            document.getElementById('manual-msg').classList.add('hidden');
+        } else {
+            document.getElementById('auto-detect-msg').classList.add('hidden');
+            document.getElementById('manual-msg').classList.remove('hidden');
+        }
+    }
+
+    function drawCanvas() {
+        const container = document.getElementById('canvas-container');
+        if (!container || !imageObj.src) return;
+
+        const containerWidth = container.clientWidth;
+        const ratio = containerWidth / imageObj.width;
+        const containerHeight = imageObj.height * ratio;
+
+        canvas.width = containerWidth;
+        canvas.height = containerHeight;
+        canvasScale = ratio;
+
+        // 이미지 그리기
+        ctx.drawImage(imageObj, 0, 0, canvas.width, canvas.height);
+
+        if (corners.length > 0) {
+            // 어두운 배경
+            ctx.fillStyle = 'rgba(0,0,0,0.4)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 선택 영역 잘라내기
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(corners[0].x * canvasScale, corners[0].y * canvasScale);
+            for(let i=1; i<corners.length; i++) {
+                ctx.lineTo(corners[i].x * canvasScale, corners[i].y * canvasScale);
+            }
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(imageObj, 0, 0, canvas.width, canvas.height);
+            ctx.restore();
+
+            // 테두리
+            ctx.strokeStyle = '#2563eb';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // 점
+            corners.forEach((c, i) => {
+                ctx.beginPath();
+                ctx.arc(c.x * canvasScale, c.y * canvasScale, 8, 0, Math.PI*2);
+                ctx.fillStyle = i === selectedCorner ? '#dc2626' : '#2563eb';
+                ctx.fill();
+                ctx.strokeStyle = 'white';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            });
+        }
+    }
+
+    // 캔버스 마우스 이벤트
+    canvas.addEventListener('mousedown', handlePointerDown);
+    canvas.addEventListener('mousemove', handlePointerMove);
+    window.addEventListener('mouseup', () => { selectedCorner = null; });
+    // 터치 지원
+    canvas.addEventListener('touchstart', (e) => handlePointerDown(e.touches[0]));
+    canvas.addEventListener('touchmove', (e) => { e.preventDefault(); handlePointerMove(e.touches[0]); });
+
+    function handlePointerDown(e) {
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / canvasScale;
+        const y = (e.clientY - rect.top) / canvasScale;
+
+        // 터치 영역 내의 코너 찾기
+        const idx = corners.findIndex(c => Math.hypot(c.x - x, c.y - y) < 30);
+        if (idx !== -1) {
+            selectedCorner = idx;
+            isAutoDetected = false; // 사용자가 건드리면 자동 감지 해제
+            updateStatusMsg();
+            drawCanvas();
+        }
+    }
+
+    function handlePointerMove(e) {
+        if (selectedCorner === null) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / canvasScale;
+        const y = (e.clientY - rect.top) / canvasScale;
+
+        corners[selectedCorner] = {x, y};
+        drawCanvas();
+    }
+
+    // 리사이즈 대응
+    window.addEventListener('resize', () => { if(currentFile?.type === 'image') drawCanvas(); });
+
+
+    // --- 작업 처리 (OCR / 저장) ---
+    function processFile(action) {
+        if (action === 'ocr') {
+            document.getElementById('tab-result').disabled = false;
+            switchTab('result');
+
+            // 결과 데이터 채우기
+            const resultText = currentFile.type === 'pdf'
+                ? "[PDF OCR 결과]\n\n문서 전체 텍스트가 여기에 표시됩니다..."
+                : "[IMG OCR 결과]\n영수증\n합계: 15,000원\n(예시 텍스트)";
+
+            document.getElementById('result-text').textContent = resultText;
+
+            if (currentFile.type === 'image') {
+                document.getElementById('result-image').src = currentFile.preview;
+                document.getElementById('result-image').classList.remove('hidden');
+                document.getElementById('result-pdf-icon').classList.add('hidden');
+            } else {
+                document.getElementById('result-image').classList.add('hidden');
+                document.getElementById('result-pdf-icon').classList.remove('hidden');
+            }
+
+        } else if (action === 'save') {
+            const item = {
+                id: Date.now(),
+                preview: currentFile.preview,
+                date: new Date().toLocaleDateString()
+            };
+            savedItems.push(item);
+            updateSavedGallery();
+            alert('보관함에 저장되었습니다.');
+        }
+    }
+
+    // --- 보관함 관리 ---
+    function updateSavedGallery() {
+        const grid = document.getElementById('saved-grid');
+        const empty = document.getElementById('saved-empty');
+        const btnMerge = document.getElementById('btn-merge-pdf');
+        const countBadge = document.getElementById('saved-count');
+
+        countBadge.textContent = savedItems.length;
+        btnMerge.disabled = savedItems.length === 0;
+
+        if (savedItems.length === 0) {
+            grid.classList.add('hidden');
+            empty.classList.remove('hidden');
+            return;
+        }
+
+        grid.classList.remove('hidden');
+        empty.classList.add('hidden');
+        grid.innerHTML = '';
+
+        savedItems.forEach(item => {
+            const div = document.createElement('div');
+            div.className = 'group bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-all';
+            div.innerHTML = `
+                    <div class="aspect-[3/4] bg-gray-100 relative overflow-hidden border-b border-gray-100">
+                        <img src="${item.preview}" class="w-full h-full object-cover">
+                        <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onclick="deleteSaved(${item.id})" class="bg-white/90 p-1.5 rounded-full text-red-500 hover:bg-red-50 shadow-sm">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="p-3">
+                        <p class="text-xs text-gray-400 font-medium mb-2">${item.date}</p>
+                        <button onclick="downloadSaved('${item.preview}', ${item.id})" class="w-full text-sm border border-gray-200 rounded py-1.5 hover:bg-gray-50 flex items-center justify-center">
+                            <i data-lucide="download" class="w-3.5 h-3.5 mr-1.5"></i> 다운로드
+                        </button>
+                    </div>
+                `;
+            grid.appendChild(div);
+        });
+        lucide.createIcons();
+    }
+
+    function deleteSaved(id) {
+        savedItems = savedItems.filter(i => i.id !== id);
+        updateSavedGallery();
+    }
+
+    function downloadSaved(url, id) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `scan_${id}.png`;
+        a.click();
+    }
+
+    function mergePDF() {
+        alert(`${savedItems.length}개의 이미지를 PDF로 병합하여 다운로드합니다.`);
+    }
+
+    // --- 유틸리티 ---
+    function copyResultText() {
+        const text = document.getElementById('result-text').textContent;
+        navigator.clipboard.writeText(text);
+        alert('복사되었습니다.');
+    }
+    function downloadResultText() {
+        const text = document.getElementById('result-text').textContent;
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([text], {type: 'text/plain'}));
+        a.download = "ocr.txt"; a.click();
+    }
+
+</script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 import os
 from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
-
+ 
 # Flask 앱 생성
 app = Flask(__name__)
 
